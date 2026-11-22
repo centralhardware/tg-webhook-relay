@@ -30,7 +30,8 @@ import de.mkammerer.snowflakeid.SnowflakeIdGenerator
  * token-derived secret, since that hop is public). The relay gives it a log id (a
  * Snowflake), logs it, writes it to a per-bot spool on disk and answers 200. A worker
  * per bot forwards the spool to that bot's target in update order, retrying while the
- * target is down: the raw update as the body, plus X-Log-Update-Id: <log id>. Targets
+ * target is down: the raw update as the body, plus X-Log-Update-Id: <log id> and
+ * X-Telegram-Update-Id: <update_id>. Targets
  * are on the private network, so that hop carries no secret.
  *
  * Outbound: bots use the relay as their Bot API URL (/bot<token>/<method>). Each call
@@ -98,11 +99,15 @@ class Spool(root: File, val bot: Bot, private val target: String) {
                 continue
             }
             for (f in files) {
-                val logId = f.name.removeSuffix(".json").split('-').getOrNull(2)
+                val parts = f.name.removeSuffix(".json").split('-')
+                val logId = parts.getOrNull(2)
+                val updateId = parts.getOrNull(0)?.toLongOrNull()
                 val ok = try {
                     val r = http.post(target) {
                         contentType(ContentType.Application.Json)
                         logId?.let { header(LOG_ID_HEADER, it) }
+                        // Lets the bot map log id → update without reading the body twice.
+                        updateId?.let { header("X-Telegram-Update-Id", it.toString()) }
                         setBody(f.readText())
                     }
                     r.status.isSuccess().also { if (!it) log("${bot.name}: target answered ${r.status} for ${f.name}") }

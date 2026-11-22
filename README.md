@@ -31,7 +31,7 @@ results.
 
 ## Forwarded request
 
-The raw update as the JSON body, plus `X-Log-Update-Id`. Targets are on the private
+The raw update as the JSON body, plus `X-Log-Update-Id` and `X-Telegram-Update-Id`. Targets are on the private
 network, so this hop carries no secret (the public Telegram → relay hop is checked
 against `X-Telegram-Bot-Api-Secret-Token`). Any standard webhook receiver works as a target. A non-2xx answer is retried (backoff up to 30 s)
 and blocks later updates of that bot, which keeps them in order.
