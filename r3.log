@@ -1,0 +1,7 @@
+[relay] CLICKHOUSE_JDBC_URL not set — nothing is logged
+[relay] bots: t -> http://127.0.0.1:18091/
+[main] INFO io.ktor.server.Application - Autoreload is disabled because the development mode is off.
+[main] INFO io.ktor.server.Application - Application started in 0.065 seconds.
+[DefaultDispatcher-worker-3] INFO io.ktor.server.Application - Responding at http://0.0.0.0:18090
+[relay] t: setWebhook failed: {"ok":false,"error_code":401,"description":"Unauthorized"}
+[relay] t: setWebhook failed: {"ok":false,"error_code":401,"description":"Unauthorized"}

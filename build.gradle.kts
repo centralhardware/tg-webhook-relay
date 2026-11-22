@@ -11,6 +11,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("dev.inmo:tgbotapi:37.1.0")
+    implementation("de.mkammerer.snowflake-id:snowflake-id:0.0.2")
     implementation("com.clickhouse:clickhouse-jdbc:0.11.2")
     implementation("org.apache.httpcomponents.client5:httpclient5:5.6.5")
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")

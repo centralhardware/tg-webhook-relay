@@ -15,7 +15,6 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant
-import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -38,25 +37,19 @@ class RequestLog(private val jdbcUrl: String) {
     private val rows = Channel<Row>(10_000)
     private val users = ConcurrentHashMap<Long, Who>()
     private var conn: Connection? = null
-    private val props = Properties().apply {
-        setProperty("clickhouse_setting_async_insert", "1")
-        setProperty("clickhouse_setting_wait_for_async_insert", "0")
-    }
-    private val ids = Snowflake(System.getenv("SNOWFLAKE_MACHINE_ID")?.toIntOrNull()?.plus(1) ?: 2)
+    private val ids = snowflake(System.getenv("SNOWFLAKE_MACHINE_ID")?.toIntOrNull()?.plus(1) ?: 2)
 
     fun start(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             Class.forName("com.clickhouse.jdbc.ClickHouseDriver")
-            val batch = ArrayList<Row>(500)
-            for (first in rows) {
-                batch += first
-                while (batch.size < 500) batch += rows.tryReceive().getOrNull() ?: break
-                runCatching { insert(batch) }.onFailure {
-                    log("clickhouse insert of ${batch.size} row(s) failed: $it")
+            // One INSERT per row: bot_requests is a Buffer table, it does the batching.
+            // The channel only keeps a slow ClickHouse off the bots' path.
+            for (row in rows) {
+                runCatching { insert(row) }.onFailure {
+                    log("clickhouse insert failed: $it")
                     runCatching { conn?.close() }
                     conn = null
                 }
-                batch.clear()
             }
         }
         // Handlers rarely run longer than this; past it the user columns stay empty.
@@ -107,13 +100,13 @@ class RequestLog(private val jdbcUrl: String) {
 
     private fun offer(r: Row) { rows.trySend(r) }
 
-    private fun insert(batch: List<Row>) {
-        val c = conn?.takeIf { !it.isClosed } ?: DriverManager.getConnection(jdbcUrl, props).also { conn = it }
+    private fun insert(r: Row) {
+        val c = conn?.takeIf { !it.isClosed } ?: DriverManager.getConnection(jdbcUrl).also { conn = it }
         c.prepareStatement(
             "INSERT INTO bot_requests (timestamp, bot, update_id, user_id, username, first_name, last_name, " +
                 "method, request, response, success, error, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).use { ps ->
-            for (r in batch) {
+            run {
                 ps.setTimestamp(1, Timestamp.from(r.ts))
                 ps.setString(2, r.bot)
                 ps.setLong(3, r.logId)
@@ -127,9 +120,8 @@ class RequestLog(private val jdbcUrl: String) {
                 ps.setBoolean(11, r.success)
                 ps.setString(12, r.error)
                 ps.setLong(13, r.ms)
-                ps.addBatch()
             }
-            ps.executeBatch()
+            ps.executeUpdate()
         }
     }
 }

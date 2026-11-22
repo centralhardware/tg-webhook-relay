@@ -170,7 +170,7 @@ fun main() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val chLog = env("CLICKHOUSE_JDBC_URL")?.let { RequestLog(it).also { l -> l.start(scope) } }
         ?: null.also { log("CLICKHOUSE_JDBC_URL not set — nothing is logged") }
-    val ids = Snowflake(env("SNOWFLAKE_MACHINE_ID")?.toIntOrNull() ?: 1)
+    val ids = snowflake(env("SNOWFLAKE_MACHINE_ID")?.toIntOrNull() ?: 1)
     for (s in spools.values) {
         scope.launch { setWebhook(http, s.bot, publicUrl!!) }
         scope.launch { s.forward(http) }
@@ -241,22 +241,13 @@ fun main() {
 }
 
 /**
- * ClickHouse-compatible Snowflake: 41 bits of Unix ms, 10 bits machine id, 12 bits
- * sequence — the same layout generateSnowflakeID() produces, so ids from the relay
- * and from the old middleware sort together.
+ * Snowflake ids in ClickHouse's generateSnowflakeID() layout (41 bits Unix ms, 10 bits
+ * machine, 12 bits sequence), so relay ids and the old middleware's ids sort together.
  */
-class Snowflake(private val machine: Int) {
-    private var lastMs = 0L
-    private var seq = 0L
-
-    @Synchronized fun next(): Long {
-        var now = System.currentTimeMillis()
-        if (now == lastMs) {
-            seq = (seq + 1) and 0xFFF
-            if (seq == 0L) { while (now <= lastMs) now = System.currentTimeMillis() }
-        } else seq = 0
-        if (now < lastMs) now = lastMs // clock went back: stay monotonic
-        lastMs = now
-        return (now shl 22) or ((machine.toLong() and 0x3FF) shl 12) or seq
-    }
-}
+fun snowflake(machine: Int): de.mkammerer.snowflakeid.SnowflakeIdGenerator =
+    de.mkammerer.snowflakeid.SnowflakeIdGenerator.createCustom(
+        machine.toLong(),
+        de.mkammerer.snowflakeid.time.MonotonicTimeSource(java.time.Instant.EPOCH),
+        de.mkammerer.snowflakeid.structure.Structure(41, 10, 12),
+        de.mkammerer.snowflakeid.options.Options(de.mkammerer.snowflakeid.options.Options.SequenceOverflowStrategy.SPIN_WAIT),
+    )
