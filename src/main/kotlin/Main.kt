@@ -21,23 +21,24 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import kotlin.system.exitProcess
+import de.mkammerer.snowflakeid.SnowflakeIdGenerator
 
 /**
  * Telegram relay for several bots: webhook receiver + Bot API proxy + request log.
  *
- * Inbound: Telegram POSTs each update to /webhook/<bot>. The relay gives it a log id
- * (a Snowflake), logs it, writes it to a per-bot spool on disk and answers 200. A
- * worker per bot forwards the spool to that bot's target in update order, retrying
- * while the target is down. The forwarded request looks like a Telegram webhook call
- * plus X-Log-Update-Id: <log id>.
+ * Inbound: Telegram POSTs each update to /webhook/<bot> (checked against the
+ * token-derived secret, since that hop is public). The relay gives it a log id (a
+ * Snowflake), logs it, writes it to a per-bot spool on disk and answers 200. A worker
+ * per bot forwards the spool to that bot's target in update order, retrying while the
+ * target is down: the raw update as the body, plus X-Log-Update-Id: <log id>. Targets
+ * are on the private network, so that hop carries no secret.
  *
  * Outbound: bots use the relay as their Bot API URL (/bot<token>/<method>). Each call
  * is forwarded to api.telegram.org and logged with its duration and result. A call that
  * carries X-Log-Update-Id is logged under that id (so a handler's calls join the update
  * that triggered them); the header is stripped before Telegram sees the call.
  *
- * Only tokens listed in the config are proxied. The webhook secret is derived from the
- * token: hex(sha256("tg-webhook-relay:" + token)).
+ * Only tokens listed in the config are proxied.
  */
 
 @Serializable
@@ -89,7 +90,6 @@ class Spool(root: File, val bot: Bot, private val target: String) {
     fun pending(): List<File> = dir.listFiles { f -> f.name.endsWith(".json") }?.sortedBy { it.name }.orEmpty()
 
     suspend fun forward(http: HttpClient) {
-        val secret = secretFor(bot.token)
         var failures = 0
         while (currentCoroutineContext().isActive) {
             val files = pending()
@@ -102,7 +102,6 @@ class Spool(root: File, val bot: Bot, private val target: String) {
                 val ok = try {
                     val r = http.post(target) {
                         contentType(ContentType.Application.Json)
-                        header("X-Telegram-Bot-Api-Secret-Token", secret)
                         logId?.let { header(LOG_ID_HEADER, it) }
                         setBody(f.readText())
                     }
@@ -240,14 +239,4 @@ fun main() {
     }.start(wait = true)
 }
 
-/**
- * Snowflake ids in ClickHouse's generateSnowflakeID() layout (41 bits Unix ms, 10 bits
- * machine, 12 bits sequence), so relay ids and the old middleware's ids sort together.
- */
-fun snowflake(machine: Int): de.mkammerer.snowflakeid.SnowflakeIdGenerator =
-    de.mkammerer.snowflakeid.SnowflakeIdGenerator.createCustom(
-        machine.toLong(),
-        de.mkammerer.snowflakeid.time.MonotonicTimeSource(java.time.Instant.EPOCH),
-        de.mkammerer.snowflakeid.structure.Structure(41, 10, 12),
-        de.mkammerer.snowflakeid.options.Options(de.mkammerer.snowflakeid.options.Options.SequenceOverflowStrategy.SPIN_WAIT),
-    )
+fun snowflake(machine: Int): SnowflakeIdGenerator = SnowflakeIdGenerator.createDefault(machine)

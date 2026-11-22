@@ -5,7 +5,7 @@ Telegram relay for several bots: webhook receiver, Bot API proxy and request log
 **Inbound.** Receives Telegram webhooks for several bots and forwards each update to that bot's own
 endpoint. Updates are spooled on disk first and forwarded in `update_id` order with
 retries, so a bot that is down or redeploying loses nothing. Each update gets a log id
-(a ClickHouse-layout Snowflake) that travels with it as `X-Log-Update-Id`.
+(a Snowflake) that travels with it as `X-Log-Update-Id`.
 
 **Outbound.** Bots use the relay as their Bot API URL (`/bot<token>/<method>`, file
 downloads `/file/bot<token>/...`). Calls go on to api.telegram.org unchanged. A call that
@@ -31,9 +31,9 @@ results.
 
 ## Forwarded request
 
-Identical to a Telegram webhook call (the raw update as the JSON body), plus
-`X-Log-Update-Id` and `X-Telegram-Bot-Api-Secret-Token: hex(sha256("tg-webhook-relay:" + token))`. Any standard
-webhook receiver works as a target. A non-2xx answer is retried (backoff up to 30 s)
+The raw update as the JSON body, plus `X-Log-Update-Id`. Targets are on the private
+network, so this hop carries no secret (the public Telegram → relay hop is checked
+against `X-Telegram-Bot-Api-Secret-Token`). Any standard webhook receiver works as a target. A non-2xx answer is retried (backoff up to 30 s)
 and blocks later updates of that bot, which keeps them in order.
 
 `GET /health` reports the queue depth per bot.
